@@ -1,0 +1,507 @@
+basePath: /
+definitions:
+  buildinfo.Info:
+    properties:
+      build_time:
+        type: string
+      commit:
+        type: string
+      started_at:
+        type: string
+      uptime:
+        type: string
+      version:
+        type: string
+    type: object
+  health.Dependency:
+    properties:
+      latency:
+        type: string
+      status:
+        type: string
+    type: object
+  health.Status:
+    properties:
+      dependencies:
+        additionalProperties:
+          $ref: '#/definitions/health.Dependency'
+        type: object
+      status:
+        type: string
+    type: object
+  httptransport.AdjustUsageRequest:
+    properties:
+      dimensions:
+        additionalProperties:
+          type: string
+        type: object
+      event_id:
+        type: string
+      meter_code:
+        type: string
+      occurred_at:
+        type: string
+      quantity:
+        type: integer
+      reason:
+        type: string
+      source_id:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - event_id
+    - meter_code
+    - reason
+    - tenant_id
+    type: object
+  httptransport.CreateMeterRequest:
+    properties:
+      aggregation:
+        type: string
+      code:
+        type: string
+      description:
+        type: string
+      dimension_keys:
+        items:
+          type: string
+        type: array
+      name:
+        type: string
+      unit:
+        type: string
+    required:
+    - aggregation
+    - code
+    - name
+    - unit
+    type: object
+  httptransport.GetMeterRequest:
+    properties:
+      code:
+        type: string
+      id:
+        type: string
+    type: object
+  httptransport.ListMetersRequest:
+    properties:
+      keyword:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      status:
+        type: string
+    type: object
+  httptransport.MeResponseBody:
+    properties:
+      subject:
+        type: string
+    type: object
+  httptransport.MeterView:
+    properties:
+      aggregation:
+        type: string
+      code:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      dimension_keys:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      name:
+        type: string
+      status:
+        type: string
+      unit:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      version:
+        type: integer
+    type: object
+  httptransport.QueryUsageRequest:
+    properties:
+      dimensions:
+        additionalProperties:
+          type: string
+        type: object
+      end_at:
+        type: string
+      granularity:
+        type: string
+      meter_code:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      start_at:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - end_at
+    - granularity
+    - meter_code
+    - start_at
+    - tenant_id
+    type: object
+  httptransport.RecordUsageRequest:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/httptransport.UsageInputRequest'
+        maxItems: 500
+        minItems: 1
+        type: array
+    required:
+    - events
+    type: object
+  httptransport.Response:
+    properties:
+      body: {}
+      code:
+        type: integer
+      message:
+        type: string
+      request_id:
+        type: string
+    type: object
+  httptransport.UpdateMeterRequest:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      status:
+        type: string
+      version:
+        type: integer
+    required:
+    - id
+    - name
+    - status
+    - version
+    type: object
+  httptransport.UsageInputRequest:
+    properties:
+      dimensions:
+        additionalProperties:
+          type: string
+        type: object
+      event_id:
+        type: string
+      meter_code:
+        type: string
+      occurred_at:
+        type: string
+      quantity:
+        type: integer
+      source_id:
+        type: string
+      source_service:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - event_id
+    - meter_code
+    - source_service
+    - tenant_id
+    type: object
+info:
+  contact: {}
+  description: 'Production-oriented Go Web API scaffold. Application error codes:
+    0 success; 10000-19999 common/input; 20000-29999 authentication/authorization;
+    30000-39999 business; 50000-59999 infrastructure.'
+  title: Go API Template
+  version: "1.0"
+paths:
+  /api/v1/me:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MeResponseBody'
+              type: object
+        "401":
+          description: 'Code 20001: unauthorized'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Return the authenticated subject
+      tags:
+      - authentication
+  /api/v1/meters/create:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Meter definition
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.CreateMeterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MeterView'
+              type: object
+      security:
+      - Bearer: []
+      summary: Create a usage meter
+      tags:
+      - metering
+  /api/v1/meters/get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Meter selector
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.GetMeterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MeterView'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get a meter
+      tags:
+      - metering
+  /api/v1/meters/list:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Search and pagination
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ListMetersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: List meters
+      tags:
+      - metering
+  /api/v1/meters/update:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Meter update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.UpdateMeterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MeterView'
+              type: object
+      security:
+      - Bearer: []
+      summary: Update a meter with optimistic locking
+      tags:
+      - metering
+  /api/v1/usage/adjust:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Usage adjustment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.AdjustUsageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Record an auditable usage adjustment
+      tags:
+      - usage
+  /api/v1/usage/query:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Usage query
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.QueryUsageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Query aggregated tenant usage
+      tags:
+      - usage
+  /api/v1/usage/record:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Usage batch
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.RecordUsageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Idempotently record usage facts
+      tags:
+      - usage
+  /api/v1/version:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/buildinfo.Info'
+              type: object
+      summary: Return build and runtime version information
+      tags:
+      - operations
+  /live:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/health.Status'
+              type: object
+      summary: Check process liveness
+      tags:
+      - operations
+  /ready:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/health.Status'
+              type: object
+        "503":
+          description: 'Code 50003: dependency unavailable'
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/health.Status'
+              type: object
+      summary: Check database and Redis readiness
+      tags:
+      - operations
+schemes:
+- http
+- https
+securityDefinitions:
+  Bearer:
+    description: Enter "Bearer {JWT}".
+    in: header
+    name: Authorization
+    type: apiKey
+  PSK:
+    description: Enter "PSK {shared-key}" for routes configured with PSK authentication.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
