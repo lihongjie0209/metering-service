@@ -6,11 +6,33 @@ import (
 
 	"github.com/lihongjie0209/metering-service/internal/auth"
 	"github.com/lihongjie0209/metering-service/internal/config"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
+	meteringv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/metering/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+func TestMeteringGRPCRequirementCoversMethodsAndScopes(t *testing.T) {
+	t.Parallel()
+	resolve := meteringGRPCRequirement(true)
+	methods := []string{meteringv1.MeteringService_CreateMeter_FullMethodName, meteringv1.MeteringService_UpdateMeter_FullMethodName, meteringv1.MeteringService_GetMeter_FullMethodName, meteringv1.MeteringService_ListMeters_FullMethodName, meteringv1.MeteringService_RecordUsage_FullMethodName, meteringv1.MeteringService_QueryUsage_FullMethodName, meteringv1.MeteringService_AdjustUsage_FullMethodName}
+	for _, method := range methods {
+		requirement, ok := resolve(method)
+		if !ok || requirement.Resource == "" || requirement.Action == "" {
+			t.Fatalf("method %q requirement = %+v, %v", method, requirement, ok)
+		}
+	}
+	record, _ := resolve(meteringv1.MeteringService_RecordUsage_FullMethodName)
+	query, _ := resolve(meteringv1.MeteringService_QueryUsage_FullMethodName)
+	if record.Scope != platformauthz.ScopePlatform || query.Scope != platformauthz.ScopePrincipal {
+		t.Fatalf("unexpected scopes: record=%v query=%v", record.Scope, query.Scope)
+	}
+	if _, ok := meteringGRPCRequirement(false)(meteringv1.MeteringService_QueryUsage_FullMethodName); ok {
+		t.Fatal("disabled authorization must not enforce")
+	}
+}
 
 func TestAuthenticateGRPC_PSKWildcard(t *testing.T) {
 	t.Parallel()

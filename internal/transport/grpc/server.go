@@ -19,6 +19,7 @@ import (
 	"github.com/lihongjie0209/metering-service/internal/metering"
 	"github.com/lihongjie0209/metering-service/internal/observability"
 	"github.com/lihongjie0209/metering-service/internal/requestid"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 
 	meteringv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/metering/v1"
@@ -40,11 +41,11 @@ type Server struct {
 	logger  *slog.Logger
 }
 
-func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, healthService *apphealth.Service, meteringService *metering.Service, metrics *observability.Metrics, logger *slog.Logger) (*Server, error) {
+func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, authorizer platformauthz.Authorizer, healthService *apphealth.Service, meteringService *metering.Service, metrics *observability.Metrics, logger *slog.Logger) (*Server, error) {
 	options := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(cfg.GRPC.MaxReceiveBytes),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
-		grpc.ChainUnaryInterceptor(environmentInterceptor(cfg.Runtime.ActiveProfile), requestIDInterceptor, idempotencyInterceptor, recoveryInterceptor(logger), authInterceptor(authService, cfg.Auth), metricsInterceptor(metrics, logger)),
+		grpc.ChainUnaryInterceptor(environmentInterceptor(cfg.Runtime.ActiveProfile), requestIDInterceptor, idempotencyInterceptor, recoveryInterceptor(logger), authInterceptor(authService, cfg.Auth), platformauthz.UnaryServerInterceptor(authorizer, meteringGRPCRequirement(cfg.Authorization.Enabled)), metricsInterceptor(metrics, logger)),
 		grpc.ChainStreamInterceptor(environmentStreamInterceptor(cfg.Runtime.ActiveProfile), requestIDStreamInterceptor, idempotencyStreamInterceptor, recoveryStreamInterceptor(logger), authStreamInterceptor(authService, cfg.Auth), metricsStreamInterceptor(metrics, logger)),
 	}
 	if cfg.GRPC.TLS.Enabled {
@@ -63,6 +64,25 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, he
 	server := &Server{server: grpcServer, address: cfg.GRPC.Address, logger: logger}
 	lc.Append(fx.Hook{OnStart: server.start(cfg.GRPC.Enabled), OnStop: server.stop})
 	return server, nil
+}
+
+func meteringGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
+	return func(method string) (platformauthz.Requirement, bool) {
+		if !enabled {
+			return platformauthz.Requirement{}, false
+		}
+		requirements := map[string]platformauthz.Requirement{
+			meteringv1.MeteringService_CreateMeter_FullMethodName: {Resource: "metering.meter", Action: "create", Scope: platformauthz.ScopePlatform},
+			meteringv1.MeteringService_UpdateMeter_FullMethodName: {Resource: "metering.meter", Action: "update", Scope: platformauthz.ScopePlatform},
+			meteringv1.MeteringService_GetMeter_FullMethodName:    {Resource: "metering.meter", Action: "read", Scope: platformauthz.ScopePrincipal},
+			meteringv1.MeteringService_ListMeters_FullMethodName:  {Resource: "metering.meter", Action: "list", Scope: platformauthz.ScopePrincipal},
+			meteringv1.MeteringService_RecordUsage_FullMethodName: {Resource: "metering.usage", Action: "record", Scope: platformauthz.ScopePlatform},
+			meteringv1.MeteringService_QueryUsage_FullMethodName:  {Resource: "metering.usage", Action: "query", Scope: platformauthz.ScopePrincipal},
+			meteringv1.MeteringService_AdjustUsage_FullMethodName: {Resource: "metering.usage", Action: "adjust", Scope: platformauthz.ScopePrincipal},
+		}
+		requirement, ok := requirements[method]
+		return requirement, ok
+	}
 }
 
 func (s *Server) start(enabled bool) func(context.Context) error {
