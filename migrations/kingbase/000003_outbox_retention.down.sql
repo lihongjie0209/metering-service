@@ -1,0 +1,1 @@
+DROP INDEX metering_outbox_retention_idx;

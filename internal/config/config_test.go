@@ -76,3 +76,31 @@ func TestConfig_ValidateAutoMigration(t *testing.T) {
 		t.Fatal("Validate() error = nil, want auto migration dependency error")
 	}
 }
+
+func TestLoadUsesSafeOutboxCleanupDefaults(t *testing.T) {
+	cfg, err := LoadWithProfile("../../config/config.yaml", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EventBus.PublishedRetention != 7*24*time.Hour || cfg.EventBus.CleanupInterval != time.Hour || cfg.EventBus.CleanupBatchSize != 1000 {
+		t.Fatalf("unexpected outbox cleanup defaults: %+v", cfg.EventBus)
+	}
+}
+
+func TestConfigRejectsInvalidOutboxCleanup(t *testing.T) {
+	cfg, err := LoadWithProfile("../../config/config.yaml", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.EventBus.Enabled = true
+	for _, mutate := range []func(*EventBus){
+		func(eventBus *EventBus) { eventBus.PublishedRetention = eventBus.MaxAge - time.Second },
+		func(eventBus *EventBus) { eventBus.CleanupBatchSize = 0 },
+	} {
+		candidate := cfg
+		mutate(&candidate.EventBus)
+		if err := candidate.Validate(); err == nil {
+			t.Fatal("Validate() error = nil, want outbox cleanup validation error")
+		}
+	}
+}
