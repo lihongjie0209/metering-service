@@ -31,6 +31,8 @@ definitions:
     type: object
   httptransport.AdjustUsageRequest:
     properties:
+      application_id:
+        type: string
       dimensions:
         additionalProperties:
           type: string
@@ -50,6 +52,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - event_id
     - meter_code
     - reason
@@ -133,6 +136,8 @@ definitions:
     type: object
   httptransport.QueryUsageRequest:
     properties:
+      application_id:
+        type: string
       dimensions:
         additionalProperties:
           type: string
@@ -152,6 +157,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - end_at
     - granularity
     - meter_code
@@ -199,6 +205,8 @@ definitions:
     type: object
   httptransport.UsageInputRequest:
     properties:
+      application_id:
+        type: string
       dimensions:
         additionalProperties:
           type: string
@@ -218,6 +226,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - event_id
     - meter_code
     - source_service

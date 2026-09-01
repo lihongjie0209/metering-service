@@ -485,6 +485,11 @@ func (c Config) Validate() error {
 			return errors.New("enabled authorization requires outbound.grpc.authorization")
 		}
 	}
+	if c.Database.Enabled {
+		if _, ok := c.Outbound.GRPC["application"]; !ok {
+			return errors.New("metering application scope requires outbound.grpc.application")
+		}
+	}
 	if (c.Auth.ClientID != "" || c.Auth.ClientSecret != "") && len(c.JWT.Secret) < 32 {
 		return errors.New("jwt.secret must contain at least 32 bytes when auth is enabled")
 	}

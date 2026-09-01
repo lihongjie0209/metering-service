@@ -2,6 +2,7 @@ package metering
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lihongjie0209/metering-service/internal/apperror"
 	"github.com/lihongjie0209/metering-service/internal/database"
+	"github.com/lihongjie0209/microservice-platform-go/appaccess"
 	platformevents "github.com/lihongjie0209/microservice-platform-go/eventbus"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 	meteringv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/metering/v1"
@@ -26,13 +28,21 @@ var codePattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{1,127}$`)
 var dimensionPattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
 
 type Service struct {
-	repository Repository
-	transactor *database.Transactor
-	now        func() time.Time
+	repository   Repository
+	transactor   transactionRunner
+	applications appaccess.Verifier
+	now          func() time.Time
 }
 
-func NewService(repository Repository, transactor *database.Transactor) *Service {
-	return &Service{repository: repository, transactor: transactor, now: time.Now}
+type transactionRunner interface {
+	Within(context.Context, *sql.TxOptions, func(*sqlx.Tx) error) error
+}
+
+func NewService(repository Repository, transactor *database.Transactor, applications appaccess.Verifier) (*Service, error) {
+	if repository == nil || transactor == nil || applications == nil {
+		return nil, errors.New("metering repository, transactor, and application verifier are required")
+	}
+	return &Service{repository: repository, transactor: transactor, applications: applications, now: time.Now}, nil
 }
 
 func (s *Service) CreateMeter(ctx context.Context, code, name, description, unit, aggregation string, dimensionKeys []string) (Meter, error) {
@@ -52,7 +62,7 @@ func (s *Service) CreateMeter(ctx context.Context, code, name, description, unit
 		if err := s.repository.CreateMeter(ctx, tx, value); err != nil {
 			return err
 		}
-		return s.addEvent(ctx, tx, "platform.metering.meter.changed.v1", "platform.metering.v1.MeterChanged", value.ID, "meter", "", actor, now, &meteringv1.MeterChangedEvent{Meter: ToProtoMeter(value), ChangeType: "created"})
+		return s.addEvent(ctx, tx, "platform.metering.meter.changed.v1", "platform.metering.v1.MeterChanged", value.ID, "meter", "", "", actor, now, &meteringv1.MeterChangedEvent{Meter: ToProtoMeter(value), ChangeType: "created"})
 	})
 	return value, translate(err)
 }
@@ -75,7 +85,7 @@ func (s *Service) UpdateMeter(ctx context.Context, id, name, description, status
 		if err := s.repository.UpdateMeter(ctx, tx, value, expected); err != nil {
 			return err
 		}
-		return s.addEvent(ctx, tx, "platform.metering.meter.changed.v1", "platform.metering.v1.MeterChanged", value.ID, "meter", "", actor, value.UpdatedAt, &meteringv1.MeterChangedEvent{Meter: ToProtoMeter(value), ChangeType: "updated"})
+		return s.addEvent(ctx, tx, "platform.metering.meter.changed.v1", "platform.metering.v1.MeterChanged", value.ID, "meter", "", "", actor, value.UpdatedAt, &meteringv1.MeterChangedEvent{Meter: ToProtoMeter(value), ChangeType: "updated"})
 	})
 	return value, translate(err)
 }
@@ -85,8 +95,14 @@ func (s *Service) GetMeter(ctx context.Context, id, code string) (Meter, error) 
 	return value, translate(err)
 }
 
-func (s *Service) GetUsage(ctx context.Context, id string) (UsageFact, error) {
-	value, err := s.repository.GetUsage(ctx, strings.TrimSpace(id))
+func (s *Service) GetUsage(ctx context.Context, tenantID, applicationID, id string) (UsageFact, error) {
+	if err := authorizeTenant(ctx, tenantID); err != nil {
+		return UsageFact{}, err
+	}
+	if err := s.verifyApplication(ctx, tenantID, applicationID); err != nil {
+		return UsageFact{}, err
+	}
+	value, err := s.repository.GetUsage(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(applicationID), strings.TrimSpace(id))
 	return value, translate(err)
 }
 
@@ -110,16 +126,24 @@ func (s *Service) RecordUsage(ctx context.Context, inputs []UsageInput) ([]Recor
 	now := s.now()
 	facts := make([]UsageFact, len(inputs))
 	meters := map[string]Meter{}
+	verifiedScopes := map[usageScope]bool{}
 	for index, input := range inputs {
-		input.EventID, input.TenantID, input.MeterCode, input.SourceService = strings.TrimSpace(input.EventID), strings.TrimSpace(input.TenantID), strings.ToLower(strings.TrimSpace(input.MeterCode)), strings.TrimSpace(input.SourceService)
-		if input.EventID == "" || input.TenantID == "" || input.MeterCode == "" || input.SourceService == "" || input.Quantity == 0 {
-			return nil, apperror.Invalid("event_id, tenant_id, meter_code, source_service, and non-zero quantity are required", nil)
+		input.EventID, input.TenantID, input.ApplicationID, input.MeterCode, input.SourceService = strings.TrimSpace(input.EventID), strings.TrimSpace(input.TenantID), strings.TrimSpace(input.ApplicationID), strings.ToLower(strings.TrimSpace(input.MeterCode)), strings.TrimSpace(input.SourceService)
+		if input.EventID == "" || input.TenantID == "" || input.ApplicationID == "" || input.MeterCode == "" || input.SourceService == "" || input.Quantity == 0 {
+			return nil, apperror.Invalid("event_id, tenant_id, application_id, meter_code, source_service, and non-zero quantity are required", nil)
 		}
 		if input.Adjustment && strings.TrimSpace(input.Reason) == "" {
 			return nil, apperror.Invalid("adjustment reason is required", nil)
 		}
 		if err := authorizeTenant(ctx, input.TenantID); err != nil {
 			return nil, err
+		}
+		scope := usageScope{TenantID: input.TenantID, ApplicationID: input.ApplicationID}
+		if !verifiedScopes[scope] {
+			if err := s.verifyApplication(ctx, input.TenantID, input.ApplicationID); err != nil {
+				return nil, err
+			}
+			verifiedScopes[scope] = true
 		}
 		meter, ok := meters[input.MeterCode]
 		if !ok {
@@ -142,11 +166,12 @@ func (s *Service) RecordUsage(ctx context.Context, inputs []UsageInput) ([]Recor
 			return nil, apperror.Invalid("occurred_at is too far in the future", nil)
 		}
 		encoded, _ := json.Marshal(input.Dimensions)
-		facts[index] = UsageFact{ID: uuid.NewString(), EventID: input.EventID, TenantID: input.TenantID, MeterCode: input.MeterCode, Quantity: input.Quantity, DimensionsJSON: string(encoded), OccurredAt: input.OccurredAt, SourceService: input.SourceService, SourceID: strings.TrimSpace(input.SourceID), Adjustment: input.Adjustment, Reason: strings.TrimSpace(input.Reason), Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: actor, UpdatedBy: actor}
+		facts[index] = UsageFact{ID: uuid.NewString(), EventID: input.EventID, TenantID: input.TenantID, ApplicationID: input.ApplicationID, MeterCode: input.MeterCode, Quantity: input.Quantity, DimensionsJSON: string(encoded), OccurredAt: input.OccurredAt, SourceService: input.SourceService, SourceID: strings.TrimSpace(input.SourceID), Adjustment: input.Adjustment, Reason: strings.TrimSpace(input.Reason), Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: actor, UpdatedBy: actor}
 	}
 	results := make([]RecordResult, 0, len(facts))
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
-		inserted := make([]*meteringv1.UsageFact, 0, len(facts))
+		inserted := make(map[usageScope][]*meteringv1.UsageFact)
+		scopeOrder := make([]usageScope, 0, len(verifiedScopes))
 		for _, fact := range facts {
 			claimed, factID, err := s.repository.ClaimUsage(ctx, tx, fact)
 			if err != nil {
@@ -159,25 +184,35 @@ func (s *Service) RecordUsage(ctx context.Context, inputs []UsageInput) ([]Recor
 			if err := s.repository.InsertUsage(ctx, tx, fact); err != nil {
 				return err
 			}
-			inserted = append(inserted, ToProtoUsageFact(fact))
+			scope := usageScope{TenantID: fact.TenantID, ApplicationID: fact.ApplicationID}
+			if _, ok := inserted[scope]; !ok {
+				scopeOrder = append(scopeOrder, scope)
+			}
+			inserted[scope] = append(inserted[scope], ToProtoUsageFact(fact))
 		}
-		if len(inserted) == 0 {
-			return nil
+		for _, scope := range scopeOrder {
+			values := inserted[scope]
+			if err := s.addEvent(ctx, tx, "platform.metering.usage.recorded.v1", "platform.metering.v1.UsageRecorded", values[0].GetId(), "usage_batch", scope.TenantID, scope.ApplicationID, actor, now, &meteringv1.UsageRecordedEvent{Facts: values}); err != nil {
+				return err
+			}
 		}
-		return s.addEvent(ctx, tx, "platform.metering.usage.recorded.v1", "platform.metering.v1.UsageRecorded", inserted[0].GetId(), "usage_batch", inserted[0].GetTenantId(), actor, now, &meteringv1.UsageRecordedEvent{Facts: inserted})
+		return nil
 	})
 	return results, translate(err)
 }
 
-func (s *Service) QueryUsage(ctx context.Context, tenantID, meterCode string, start, end time.Time, dimensions map[string]string, granularity string, page, pageSize int) (Page[UsagePoint], int64, error) {
+func (s *Service) QueryUsage(ctx context.Context, tenantID, applicationID, meterCode string, start, end time.Time, dimensions map[string]string, granularity string, page, pageSize int) (Page[UsagePoint], int64, error) {
 	page, pageSize, err := pagination(page, pageSize)
 	if err != nil {
 		return Page[UsagePoint]{}, 0, err
 	}
-	if tenantID == "" || meterCode == "" || start.IsZero() || !end.After(start) || end.Sub(start) > 366*24*time.Hour {
-		return Page[UsagePoint]{}, 0, apperror.Invalid("tenant_id, meter_code, and a range of at most 366 days are required", nil)
+	if tenantID == "" || applicationID == "" || meterCode == "" || start.IsZero() || !end.After(start) || end.Sub(start) > 366*24*time.Hour {
+		return Page[UsagePoint]{}, 0, apperror.Invalid("tenant_id, application_id, meter_code, and a range of at most 366 days are required", nil)
 	}
 	if err := authorizeTenant(ctx, tenantID); err != nil {
+		return Page[UsagePoint]{}, 0, err
+	}
+	if err := s.verifyApplication(ctx, tenantID, applicationID); err != nil {
 		return Page[UsagePoint]{}, 0, err
 	}
 	meter, err := s.repository.GetMeter(ctx, "", meterCode)
@@ -187,15 +222,20 @@ func (s *Service) QueryUsage(ctx context.Context, tenantID, meterCode string, st
 	if !map[string]bool{"hour": true, "day": true, "month": true}[granularity] {
 		return Page[UsagePoint]{}, 0, apperror.Invalid("granularity must be hour, day, or month", nil)
 	}
-	points, total, totalQuantity, err := s.repository.AggregateUsage(ctx, tenantID, meterCode, start, end, dimensions, granularity, meter.Aggregation, pageSize, (page-1)*pageSize)
+	points, total, totalQuantity, err := s.repository.AggregateUsage(ctx, tenantID, applicationID, meterCode, start, end, dimensions, granularity, meter.Aggregation, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return Page[UsagePoint]{}, 0, translate(err)
 	}
 	return Page[UsagePoint]{Items: points, Total: total, Page: page, PageSize: pageSize}, totalQuantity, nil
 }
 
-func (s *Service) addEvent(ctx context.Context, tx *sqlx.Tx, subject, eventType, aggregateID, aggregateType, tenantID, actor string, at time.Time, payload proto.Message) error {
-	envelope, err := platformevents.NewEnvelope(platformevents.Metadata{EventID: uuid.NewString(), EventType: eventType, AggregateID: aggregateID, AggregateType: aggregateType, TenantID: tenantID, SchemaVersion: 1, ActorID: actor, OccurredAt: at}, payload)
+type usageScope struct {
+	TenantID      string
+	ApplicationID string
+}
+
+func (s *Service) addEvent(ctx context.Context, tx *sqlx.Tx, subject, eventType, aggregateID, aggregateType, tenantID, applicationID, actor string, at time.Time, payload proto.Message) error {
+	envelope, err := platformevents.NewEnvelope(platformevents.Metadata{EventID: uuid.NewString(), EventType: eventType, AggregateID: aggregateID, AggregateType: aggregateType, TenantID: tenantID, ApplicationID: applicationID, SchemaVersion: 1, ActorID: actor, OccurredAt: at}, payload)
 	if err != nil {
 		return err
 	}
@@ -204,6 +244,17 @@ func (s *Service) addEvent(ctx context.Context, tx *sqlx.Tx, subject, eventType,
 		return err
 	}
 	return s.repository.AddOutbox(ctx, tx, OutboxEvent{ID: envelope.GetEventId(), Subject: subject, Envelope: encoded, AvailableAt: at, CreatedAt: at, UpdatedAt: at, CreatedBy: actor, UpdatedBy: actor})
+}
+
+func (s *Service) verifyApplication(ctx context.Context, tenantID, applicationID string) error {
+	err := s.applications.Verify(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(applicationID))
+	if errors.Is(err, appaccess.ErrNotGranted) {
+		return apperror.Forbidden("application access denied")
+	}
+	if err != nil {
+		return apperror.Unavailable("application authorization is unavailable", err)
+	}
+	return nil
 }
 
 func actor(ctx context.Context) (string, error) {
@@ -294,7 +345,7 @@ func translate(err error) error {
 		return apperror.Conflict("resource version is stale", err)
 	}
 	if errors.Is(err, ErrIdempotencyConflict) {
-		return apperror.Conflict("event_id was already used for another tenant or meter", err)
+		return apperror.Conflict("event_id was already used for another tenant, application, or meter", err)
 	}
 	return apperror.Internal(err)
 }
@@ -306,5 +357,5 @@ func ToProtoMeter(value Meter) *meteringv1.Meter {
 func ToProtoUsageFact(value UsageFact) *meteringv1.UsageFact {
 	dimensions := map[string]string{}
 	_ = json.Unmarshal([]byte(value.DimensionsJSON), &dimensions)
-	return &meteringv1.UsageFact{Id: value.ID, EventId: value.EventID, TenantId: value.TenantID, MeterCode: value.MeterCode, Quantity: value.Quantity, Dimensions: dimensions, OccurredAt: timestamppb.New(value.OccurredAt), SourceService: value.SourceService, SourceId: value.SourceID, Adjustment: value.Adjustment, Reason: value.Reason, Version: value.Version, CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt), CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
+	return &meteringv1.UsageFact{Id: value.ID, EventId: value.EventID, TenantId: value.TenantID, ApplicationId: value.ApplicationID, MeterCode: value.MeterCode, Quantity: value.Quantity, Dimensions: dimensions, OccurredAt: timestamppb.New(value.OccurredAt), SourceService: value.SourceService, SourceId: value.SourceID, Adjustment: value.Adjustment, Reason: value.Reason, Version: value.Version, CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt), CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
 }

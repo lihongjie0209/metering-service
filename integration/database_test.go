@@ -73,7 +73,10 @@ func TestRepositoryAndMigrations(t *testing.T) {
 				t.Fatal("generic template migration must not create a users table")
 			}
 			repository := metering.NewRepository(db)
-			service := metering.NewService(repository, appdb.NewTransactor(db))
+			service, err := metering.NewService(repository, appdb.NewTransactor(db), allowApplicationVerifier{})
+			if err != nil {
+				t.Fatal(err)
+			}
 			serviceCtx := platformprincipal.WithContext(ctx, platformprincipal.Principal{ID: "integration-test", Type: platformprincipal.TypeSystem})
 			meter, err := service.CreateMeter(serviceCtx, "api.calls", "API calls", "", "request", "sum", []string{"endpoint"})
 			if err != nil || meter.Version != 1 {
@@ -81,20 +84,20 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			}
 			occurredAt := time.Date(2026, time.August, 15, 10, 15, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 			results, err := service.RecordUsage(serviceCtx, []metering.UsageInput{
-				{EventID: "event-1", TenantID: "tenant-1", MeterCode: "api.calls", Quantity: 2, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt, SourceService: "integration"},
-				{EventID: "event-2", TenantID: "tenant-1", MeterCode: "api.calls", Quantity: 3, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt.Add(10 * time.Minute), SourceService: "integration"},
+				{EventID: "event-1", TenantID: "tenant-1", ApplicationID: "app-integration", MeterCode: "api.calls", Quantity: 2, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt, SourceService: "integration"},
+				{EventID: "event-2", TenantID: "tenant-1", ApplicationID: "app-integration", MeterCode: "api.calls", Quantity: 3, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt.Add(10 * time.Minute), SourceService: "integration"},
 			})
 			if err != nil || len(results) != 2 {
 				t.Fatalf("record usage: results=%+v err=%v", results, err)
 			}
-			duplicate, err := service.RecordUsage(serviceCtx, []metering.UsageInput{{EventID: "event-1", TenantID: "tenant-1", MeterCode: "api.calls", Quantity: 2, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt, SourceService: "integration"}})
+			duplicate, err := service.RecordUsage(serviceCtx, []metering.UsageInput{{EventID: "event-1", TenantID: "tenant-1", ApplicationID: "app-integration", MeterCode: "api.calls", Quantity: 2, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt, SourceService: "integration"}})
 			if err != nil || len(duplicate) != 1 || !duplicate[0].Duplicate {
 				t.Fatalf("duplicate usage: results=%+v err=%v", duplicate, err)
 			}
-			if _, err := service.RecordUsage(serviceCtx, []metering.UsageInput{{EventID: "event-1", TenantID: "tenant-2", MeterCode: "api.calls", Quantity: 2, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt, SourceService: "integration"}}); err == nil {
+			if _, err := service.RecordUsage(serviceCtx, []metering.UsageInput{{EventID: "event-1", TenantID: "tenant-2", ApplicationID: "app-integration", MeterCode: "api.calls", Quantity: 2, Dimensions: map[string]string{"endpoint": "/orders"}, OccurredAt: occurredAt, SourceService: "integration"}}); err == nil {
 				t.Fatal("cross-tenant reuse of event_id must be rejected")
 			}
-			page, totalQuantity, err := service.QueryUsage(serviceCtx, "tenant-1", "api.calls", occurredAt.Add(-time.Hour), occurredAt.Add(time.Hour), map[string]string{"endpoint": "/orders"}, "hour", 1, 20)
+			page, totalQuantity, err := service.QueryUsage(serviceCtx, "tenant-1", "app-integration", "api.calls", occurredAt.Add(-time.Hour), occurredAt.Add(time.Hour), map[string]string{"endpoint": "/orders"}, "hour", 1, 20)
 			if err != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].Quantity != 5 || totalQuantity != 5 {
 				t.Fatalf("query usage: page=%+v total=%d err=%v", page, totalQuantity, err)
 			}
@@ -107,6 +110,10 @@ func TestRepositoryAndMigrations(t *testing.T) {
 		})
 	}
 }
+
+type allowApplicationVerifier struct{}
+
+func (allowApplicationVerifier) Verify(context.Context, string, string) error { return nil }
 
 func startDatabase(t *testing.T, ctx context.Context, databaseType string) (string, string) {
 	t.Helper()

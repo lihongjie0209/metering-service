@@ -55,7 +55,7 @@ func (s *meteringServer) ListMeters(ctx context.Context, request *meteringv1.Lis
 func (s *meteringServer) RecordUsage(ctx context.Context, request *meteringv1.RecordUsageRequest) (*meteringv1.RecordUsageResponse, error) {
 	inputs := make([]metering.UsageInput, len(request.GetEvents()))
 	for i, value := range request.GetEvents() {
-		inputs[i] = usageInput(value.GetEventId(), value.GetTenantId(), value.GetMeterCode(), value.GetQuantity(), value.GetDimensions(), value.GetOccurredAt(), value.GetSourceService(), value.GetSourceId(), false, "")
+		inputs[i] = usageInput(value.GetEventId(), value.GetTenantId(), value.GetApplicationId(), value.GetMeterCode(), value.GetQuantity(), value.GetDimensions(), value.GetOccurredAt(), value.GetSourceService(), value.GetSourceId(), false, "")
 	}
 	values, err := s.service.RecordUsage(ctx, inputs)
 	if err != nil {
@@ -70,7 +70,7 @@ func (s *meteringServer) RecordUsage(ctx context.Context, request *meteringv1.Re
 func (s *meteringServer) QueryUsage(ctx context.Context, request *meteringv1.QueryUsageRequest) (*meteringv1.QueryUsageResponse, error) {
 	page, size := pageValues(request.GetPage())
 	start, end := timestampValue(request.GetStartAt()), timestampValue(request.GetEndAt())
-	values, total, err := s.service.QueryUsage(ctx, request.GetTenantId(), request.GetMeterCode(), start, end, request.GetDimensions(), request.GetGranularity(), page, size)
+	values, total, err := s.service.QueryUsage(ctx, request.GetTenantId(), request.GetApplicationId(), request.GetMeterCode(), start, end, request.GetDimensions(), request.GetGranularity(), page, size)
 	if err != nil {
 		return nil, meteringError(err)
 	}
@@ -81,12 +81,12 @@ func (s *meteringServer) QueryUsage(ctx context.Context, request *meteringv1.Que
 	return &meteringv1.QueryUsageResponse{Points: points, TotalQuantity: total, Page: pageResult(values.Total, values.Page, values.PageSize)}, nil
 }
 func (s *meteringServer) AdjustUsage(ctx context.Context, request *meteringv1.AdjustUsageRequest) (*meteringv1.AdjustUsageResponse, error) {
-	input := usageInput(request.GetEventId(), request.GetTenantId(), request.GetMeterCode(), request.GetQuantity(), request.GetDimensions(), request.GetOccurredAt(), "metering-service", request.GetSourceId(), true, request.GetReason())
+	input := usageInput(request.GetEventId(), request.GetTenantId(), request.GetApplicationId(), request.GetMeterCode(), request.GetQuantity(), request.GetDimensions(), request.GetOccurredAt(), "metering-service", request.GetSourceId(), true, request.GetReason())
 	values, err := s.service.RecordUsage(ctx, []metering.UsageInput{input})
 	if err != nil {
 		return nil, meteringError(err)
 	}
-	fact, err := s.service.GetUsage(ctx, values[0].FactID)
+	fact, err := s.service.GetUsage(ctx, request.GetTenantId(), request.GetApplicationId(), values[0].FactID)
 	if err != nil {
 		return nil, meteringError(err)
 	}
@@ -108,8 +108,8 @@ func timestampValue(value *timestamppb.Timestamp) time.Time {
 	}
 	return value.AsTime()
 }
-func usageInput(eventID, tenantID, meterCode string, quantity int64, dimensions map[string]string, occurredAt *timestamppb.Timestamp, sourceService, sourceID string, adjustment bool, reason string) metering.UsageInput {
-	return metering.UsageInput{EventID: eventID, TenantID: tenantID, MeterCode: meterCode, Quantity: quantity, Dimensions: dimensions, OccurredAt: timestampValue(occurredAt), SourceService: sourceService, SourceID: sourceID, Adjustment: adjustment, Reason: reason}
+func usageInput(eventID, tenantID, applicationID, meterCode string, quantity int64, dimensions map[string]string, occurredAt *timestamppb.Timestamp, sourceService, sourceID string, adjustment bool, reason string) metering.UsageInput {
+	return metering.UsageInput{EventID: eventID, TenantID: tenantID, ApplicationID: applicationID, MeterCode: meterCode, Quantity: quantity, Dimensions: dimensions, OccurredAt: timestampValue(occurredAt), SourceService: sourceService, SourceID: sourceID, Adjustment: adjustment, Reason: reason}
 }
 func meteringError(err error) error {
 	var appErr *apperror.Error

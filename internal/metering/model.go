@@ -22,6 +22,7 @@ type UsageFact struct {
 	ID             string    `db:"id" json:"id"`
 	EventID        string    `db:"event_id" json:"event_id"`
 	TenantID       string    `db:"tenant_id" json:"tenant_id"`
+	ApplicationID  string    `db:"application_id" json:"application_id"`
 	MeterCode      string    `db:"meter_code" json:"meter_code"`
 	DimensionsJSON string    `db:"dimensions_json" json:"-"`
 	SourceService  string    `db:"source_service" json:"source_service"`
@@ -38,11 +39,11 @@ type UsageFact struct {
 }
 
 type UsageInput struct {
-	EventID, TenantID, MeterCode, SourceService, SourceID, Reason string
-	Quantity                                                      int64
-	Dimensions                                                    map[string]string
-	OccurredAt                                                    time.Time
-	Adjustment                                                    bool
+	EventID, TenantID, ApplicationID, MeterCode, SourceService, SourceID, Reason string
+	Quantity                                                                     int64
+	Dimensions                                                                   map[string]string
+	OccurredAt                                                                   time.Time
+	Adjustment                                                                   bool
 }
 
 type RecordResult struct {

@@ -22,8 +22,8 @@ type Repository interface {
 	ListMeters(context.Context, string, string, int, int) ([]Meter, int64, error)
 	ClaimUsage(context.Context, sqlx.ExtContext, UsageFact) (bool, string, error)
 	InsertUsage(context.Context, sqlx.ExtContext, UsageFact) error
-	GetUsage(context.Context, string) (UsageFact, error)
-	AggregateUsage(context.Context, string, string, time.Time, time.Time, map[string]string, string, string, int, int) ([]UsagePoint, int64, int64, error)
+	GetUsage(context.Context, string, string, string) (UsageFact, error)
+	AggregateUsage(context.Context, string, string, string, time.Time, time.Time, map[string]string, string, string, int, int) ([]UsagePoint, int64, int64, error)
 	AddOutbox(context.Context, sqlx.ExtContext, OutboxEvent) error
 }
 
@@ -39,7 +39,7 @@ type SQLRepository struct{ db *sqlx.DB }
 func NewRepository(db *sqlx.DB) Repository { return &SQLRepository{db: db} }
 
 const meterColumns = `id,code,name,description,unit,aggregation,dimension_keys_json,status,version,created_at,updated_at,created_by,updated_by`
-const usageColumns = `id,event_id,tenant_id,meter_code,quantity,dimensions_json,occurred_at,source_service,source_id,adjustment,reason,version,created_at,updated_at,created_by,updated_by`
+const usageColumns = `id,event_id,tenant_id,application_id,meter_code,quantity,dimensions_json,occurred_at,source_service,source_id,adjustment,reason,version,created_at,updated_at,created_by,updated_by`
 
 func (r *SQLRepository) CreateMeter(ctx context.Context, e sqlx.ExtContext, value Meter) error {
 	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO meters (`+meterColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`), value.ID, value.Code, value.Name, value.Description, value.Unit, value.Aggregation, value.DimensionKeysJSON, value.Status, value.Version, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy)
@@ -93,11 +93,11 @@ func (r *SQLRepository) ListMeters(ctx context.Context, status, keyword string, 
 }
 
 func (r *SQLRepository) ClaimUsage(ctx context.Context, e sqlx.ExtContext, value UsageFact) (bool, string, error) {
-	query := `INSERT INTO usage_ingestion_keys (event_id,fact_id,tenant_id,meter_code,occurred_at,version,created_at,updated_at,created_by,updated_by) VALUES (?,?,?,?,?,1,?,?,?,?) ON CONFLICT (event_id) DO NOTHING`
+	query := `INSERT INTO usage_ingestion_keys (event_id,fact_id,tenant_id,application_id,meter_code,occurred_at,version,created_at,updated_at,created_by,updated_by) VALUES (?,?,?,?,?,?,1,?,?,?,?) ON CONFLICT (event_id) DO NOTHING`
 	if r.db.DriverName() == "mysql" {
-		query = `INSERT IGNORE INTO usage_ingestion_keys (event_id,fact_id,tenant_id,meter_code,occurred_at,version,created_at,updated_at,created_by,updated_by) VALUES (?,?,?,?,?,1,?,?,?,?)`
+		query = `INSERT IGNORE INTO usage_ingestion_keys (event_id,fact_id,tenant_id,application_id,meter_code,occurred_at,version,created_at,updated_at,created_by,updated_by) VALUES (?,?,?,?,?,?,1,?,?,?,?)`
 	}
-	result, err := e.ExecContext(ctx, r.db.Rebind(query), value.EventID, value.ID, value.TenantID, value.MeterCode, value.OccurredAt, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy)
+	result, err := e.ExecContext(ctx, r.db.Rebind(query), value.EventID, value.ID, value.TenantID, value.ApplicationID, value.MeterCode, value.OccurredAt, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy)
 	if err != nil {
 		return false, "", err
 	}
@@ -109,40 +109,41 @@ func (r *SQLRepository) ClaimUsage(ctx context.Context, e sqlx.ExtContext, value
 		return true, value.ID, nil
 	}
 	var existing struct {
-		FactID    string `db:"fact_id"`
-		TenantID  string `db:"tenant_id"`
-		MeterCode string `db:"meter_code"`
+		FactID        string `db:"fact_id"`
+		TenantID      string `db:"tenant_id"`
+		ApplicationID string `db:"application_id"`
+		MeterCode     string `db:"meter_code"`
 	}
-	if err := sqlx.GetContext(ctx, e, &existing, r.db.Rebind(`SELECT fact_id,tenant_id,meter_code FROM usage_ingestion_keys WHERE event_id=?`), value.EventID); err != nil {
+	if err := sqlx.GetContext(ctx, e, &existing, r.db.Rebind(`SELECT fact_id,tenant_id,application_id,meter_code FROM usage_ingestion_keys WHERE event_id=?`), value.EventID); err != nil {
 		return false, "", err
 	}
-	if existing.TenantID != value.TenantID || existing.MeterCode != value.MeterCode {
+	if existing.TenantID != value.TenantID || existing.ApplicationID != value.ApplicationID || existing.MeterCode != value.MeterCode {
 		return false, "", ErrIdempotencyConflict
 	}
 	return false, existing.FactID, nil
 }
 
 func (r *SQLRepository) InsertUsage(ctx context.Context, e sqlx.ExtContext, value UsageFact) error {
-	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO usage_facts (`+usageColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), value.ID, value.EventID, value.TenantID, value.MeterCode, value.Quantity, value.DimensionsJSON, value.OccurredAt, value.SourceService, value.SourceID, value.Adjustment, value.Reason, value.Version, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy)
+	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO usage_facts (`+usageColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), value.ID, value.EventID, value.TenantID, value.ApplicationID, value.MeterCode, value.Quantity, value.DimensionsJSON, value.OccurredAt, value.SourceService, value.SourceID, value.Adjustment, value.Reason, value.Version, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy)
 	return err
 }
 
-func (r *SQLRepository) GetUsage(ctx context.Context, id string) (UsageFact, error) {
+func (r *SQLRepository) GetUsage(ctx context.Context, tenantID, applicationID, id string) (UsageFact, error) {
 	var value UsageFact
-	err := r.db.GetContext(ctx, &value, r.db.Rebind(`SELECT `+usageColumns+` FROM usage_facts WHERE id=?`), id)
+	err := r.db.GetContext(ctx, &value, r.db.Rebind(`SELECT `+usageColumns+` FROM usage_facts WHERE tenant_id=? AND application_id=? AND id=?`), tenantID, applicationID, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return value, err
 }
 
-func (r *SQLRepository) AggregateUsage(ctx context.Context, tenantID, meterCode string, start, end time.Time, dimensions map[string]string, granularity, aggregation string, limit, offset int) ([]UsagePoint, int64, int64, error) {
+func (r *SQLRepository) AggregateUsage(ctx context.Context, tenantID, applicationID, meterCode string, start, end time.Time, dimensions map[string]string, granularity, aggregation string, limit, offset int) ([]UsagePoint, int64, int64, error) {
 	encodedDimensions, err := json.Marshal(dimensions)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	where := `tenant_id=? AND meter_code=? AND occurred_at>=? AND occurred_at<?`
-	args := []any{tenantID, meterCode, start, end}
+	where := `tenant_id=? AND application_id=? AND meter_code=? AND occurred_at>=? AND occurred_at<?`
+	args := []any{tenantID, applicationID, meterCode, start, end}
 	if len(dimensions) > 0 {
 		if r.db.DriverName() == "mysql" {
 			where += ` AND JSON_CONTAINS(dimensions_json, CAST(? AS JSON))`

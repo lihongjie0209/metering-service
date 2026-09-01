@@ -37,6 +37,7 @@ type ListMetersRequest struct {
 type UsageInputRequest struct {
 	EventID       string            `json:"event_id" binding:"required"`
 	TenantID      string            `json:"tenant_id" binding:"required"`
+	ApplicationID string            `json:"application_id" binding:"required"`
 	MeterCode     string            `json:"meter_code" binding:"required"`
 	Quantity      int64             `json:"quantity"`
 	Dimensions    map[string]string `json:"dimensions"`
@@ -48,24 +49,26 @@ type RecordUsageRequest struct {
 	Events []UsageInputRequest `json:"events" binding:"required,min=1,max=500,dive"`
 }
 type AdjustUsageRequest struct {
-	EventID    string            `json:"event_id" binding:"required"`
-	TenantID   string            `json:"tenant_id" binding:"required"`
-	MeterCode  string            `json:"meter_code" binding:"required"`
-	Quantity   int64             `json:"quantity"`
-	Dimensions map[string]string `json:"dimensions"`
-	OccurredAt *time.Time        `json:"occurred_at"`
-	SourceID   string            `json:"source_id"`
-	Reason     string            `json:"reason" binding:"required"`
+	EventID       string            `json:"event_id" binding:"required"`
+	TenantID      string            `json:"tenant_id" binding:"required"`
+	ApplicationID string            `json:"application_id" binding:"required"`
+	MeterCode     string            `json:"meter_code" binding:"required"`
+	Quantity      int64             `json:"quantity"`
+	Dimensions    map[string]string `json:"dimensions"`
+	OccurredAt    *time.Time        `json:"occurred_at"`
+	SourceID      string            `json:"source_id"`
+	Reason        string            `json:"reason" binding:"required"`
 }
 type QueryUsageRequest struct {
-	TenantID    string            `json:"tenant_id" binding:"required"`
-	MeterCode   string            `json:"meter_code" binding:"required"`
-	StartAt     time.Time         `json:"start_at" binding:"required"`
-	EndAt       time.Time         `json:"end_at" binding:"required"`
-	Dimensions  map[string]string `json:"dimensions"`
-	Granularity string            `json:"granularity" binding:"required"`
-	Page        int               `json:"page"`
-	PageSize    int               `json:"page_size"`
+	TenantID      string            `json:"tenant_id" binding:"required"`
+	ApplicationID string            `json:"application_id" binding:"required"`
+	MeterCode     string            `json:"meter_code" binding:"required"`
+	StartAt       time.Time         `json:"start_at" binding:"required"`
+	EndAt         time.Time         `json:"end_at" binding:"required"`
+	Dimensions    map[string]string `json:"dimensions"`
+	Granularity   string            `json:"granularity" binding:"required"`
+	Page          int               `json:"page"`
+	PageSize      int               `json:"page_size"`
 }
 type MeterView struct {
 	ID            string    `json:"id"`
@@ -211,7 +214,7 @@ func (h *Handler) AdjustUsage(c *gin.Context) {
 	if !h.bind(c, &request) {
 		return
 	}
-	inputs := usageInputs([]UsageInputRequest{{EventID: request.EventID, TenantID: request.TenantID, MeterCode: request.MeterCode, Quantity: request.Quantity, Dimensions: request.Dimensions, OccurredAt: request.OccurredAt, SourceService: "metering-service", SourceID: request.SourceID}}, true, request.Reason)
+	inputs := usageInputs([]UsageInputRequest{{EventID: request.EventID, TenantID: request.TenantID, ApplicationID: request.ApplicationID, MeterCode: request.MeterCode, Quantity: request.Quantity, Dimensions: request.Dimensions, OccurredAt: request.OccurredAt, SourceService: "metering-service", SourceID: request.SourceID}}, true, request.Reason)
 	results, err := h.metering.RecordUsage(c.Request.Context(), inputs)
 	if err != nil {
 		Fail(c, h.logger, err)
@@ -234,7 +237,7 @@ func (h *Handler) QueryUsage(c *gin.Context) {
 	if !h.bind(c, &request) {
 		return
 	}
-	page, total, err := h.metering.QueryUsage(c.Request.Context(), request.TenantID, request.MeterCode, request.StartAt, request.EndAt, request.Dimensions, request.Granularity, request.Page, request.PageSize)
+	page, total, err := h.metering.QueryUsage(c.Request.Context(), request.TenantID, request.ApplicationID, request.MeterCode, request.StartAt, request.EndAt, request.Dimensions, request.Granularity, request.Page, request.PageSize)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -260,7 +263,7 @@ func usageInputs(values []UsageInputRequest, adjustment bool, reason string) []m
 		if value.OccurredAt != nil {
 			occurredAt = *value.OccurredAt
 		}
-		result[i] = metering.UsageInput{EventID: value.EventID, TenantID: value.TenantID, MeterCode: value.MeterCode, Quantity: value.Quantity, Dimensions: value.Dimensions, OccurredAt: occurredAt, SourceService: value.SourceService, SourceID: value.SourceID, Adjustment: adjustment, Reason: reason}
+		result[i] = metering.UsageInput{EventID: value.EventID, TenantID: value.TenantID, ApplicationID: value.ApplicationID, MeterCode: value.MeterCode, Quantity: value.Quantity, Dimensions: value.Dimensions, OccurredAt: occurredAt, SourceService: value.SourceService, SourceID: value.SourceID, Adjustment: adjustment, Reason: reason}
 	}
 	return result
 }

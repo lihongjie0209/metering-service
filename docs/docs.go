@@ -520,12 +520,16 @@ const docTemplate = `{
         "httptransport.AdjustUsageRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "event_id",
                 "meter_code",
                 "reason",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "dimensions": {
                     "type": "object",
                     "additionalProperties": {
@@ -673,6 +677,7 @@ const docTemplate = `{
         "httptransport.QueryUsageRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "end_at",
                 "granularity",
                 "meter_code",
@@ -680,6 +685,9 @@ const docTemplate = `{
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "dimensions": {
                     "type": "object",
                     "additionalProperties": {
@@ -769,12 +777,16 @@ const docTemplate = `{
         "httptransport.UsageInputRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "event_id",
                 "meter_code",
                 "source_service",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "dimensions": {
                     "type": "object",
                     "additionalProperties": {

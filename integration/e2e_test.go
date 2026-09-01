@@ -17,6 +17,7 @@ import (
 	"github.com/lihongjie0209/metering-service/internal/app"
 	"github.com/lihongjie0209/metering-service/internal/auth"
 	"github.com/lihongjie0209/metering-service/internal/config"
+	applicationv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/application/v1"
 	meteringv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/metering/v1"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
@@ -55,6 +56,15 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	applicationAddress := freeAddress(t)
+	applicationListener, err := net.Listen("tcp", applicationAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationServer := grpc.NewServer()
+	applicationv1.RegisterApplicationServiceServer(applicationServer, &applicationStub{})
+	go func() { _ = applicationServer.Serve(applicationListener) }()
+	t.Cleanup(applicationServer.Stop)
 
 	httpAddress := freeAddress(t)
 	grpcAddress := freeAddress(t)
@@ -74,6 +84,9 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		Auth:          config.Auth{ClientID: "client", ClientSecret: "secret", SkipHTTPPaths: []string{"/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, GRPCMethods: []string{"/platform.metering.v1.MeteringService/*"}}},
 		Cron:          config.Cron{Enabled: false, Timezone: "UTC"},
 		Idempotency:   config.Idempotency{Enabled: true, ProcessingTTL: 30 * time.Second, ResultTTL: time.Hour, FailureTTL: time.Minute},
+		Outbound: config.Outbound{GRPC: map[string]config.GRPCUpstream{
+			"application": {Target: applicationAddress, Timeout: 5 * time.Second, Retry: config.Retry{MaxAttempts: 1, InitialBackoff: 10 * time.Millisecond, MaxBackoff: time.Second}},
+		}},
 	}
 	application := app.New(cfg)
 	if err := application.Start(ctx); err != nil {
@@ -112,6 +125,18 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if err != nil || created.GetMeter().GetCode() != "api.calls" {
 		t.Fatalf("PSK CreateMeter: response=%v err=%v", created, err)
 	}
+}
+
+type applicationStub struct {
+	applicationv1.UnimplementedApplicationServiceServer
+}
+
+func (*applicationStub) BatchCheckTenantApplications(_ context.Context, request *applicationv1.BatchCheckTenantApplicationsRequest) (*applicationv1.BatchCheckTenantApplicationsResponse, error) {
+	decisions := make([]*applicationv1.TenantApplicationDecision, 0, len(request.GetApplicationIds()))
+	for _, applicationID := range request.GetApplicationIds() {
+		decisions = append(decisions, &applicationv1.TenantApplicationDecision{ApplicationId: applicationID, Granted: true})
+	}
+	return &applicationv1.BatchCheckTenantApplicationsResponse{Decisions: decisions}, nil
 }
 
 func freeAddress(t *testing.T) string {
