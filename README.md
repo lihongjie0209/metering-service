@@ -55,6 +55,10 @@ Production verifies identity-service tokens using JWKS, issuer, and the
 Principal. A user principal can only access its own tenant; service-account
 and system principals can perform internal ingestion.
 
+The meter catalog is platform-global: create, update, get, and list all make
+their authorization decision in `__platform__`. Usage queries remain derived
+from the caller principal and additionally validate `tenant_id + application_id`.
+
 JWT bypass and PSK routes are configuration-driven and support Go
 `path.Match` wildcards. PSK rules take precedence over bypass/JWT rules.
 Production secrets are environment/secret-manager values, never YAML values.

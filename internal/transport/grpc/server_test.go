@@ -24,10 +24,11 @@ func TestMeteringGRPCRequirementCoversMethodsAndScopes(t *testing.T) {
 			t.Fatalf("method %q requirement = %+v, %v", method, requirement, ok)
 		}
 	}
+	list, _ := resolve(meteringv1.MeteringService_ListMeters_FullMethodName)
 	record, _ := resolve(meteringv1.MeteringService_RecordUsage_FullMethodName)
 	query, _ := resolve(meteringv1.MeteringService_QueryUsage_FullMethodName)
-	if record.Scope != platformauthz.ScopePlatform || query.Scope != platformauthz.ScopePrincipal {
-		t.Fatalf("unexpected scopes: record=%v query=%v", record.Scope, query.Scope)
+	if list.Scope != platformauthz.ScopePlatform || record.Scope != platformauthz.ScopePlatform || query.Scope != platformauthz.ScopePrincipal {
+		t.Fatalf("unexpected scopes: list=%v record=%v query=%v", list.Scope, record.Scope, query.Scope)
 	}
 	if _, ok := meteringGRPCRequirement(false)(meteringv1.MeteringService_QueryUsage_FullMethodName); ok {
 		t.Fatal("disabled authorization must not enforce")

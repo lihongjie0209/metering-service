@@ -33,10 +33,11 @@ func TestMeteringHTTPRequirementCoversRoutesAndScopes(t *testing.T) {
 		}
 	}
 	create, _ := meteringHTTPRequirement("/api/v1/meters/create")
+	list, _ := meteringHTTPRequirement("/api/v1/meters/list")
 	record, _ := meteringHTTPRequirement("/api/v1/usage/record")
 	query, _ := meteringHTTPRequirement("/api/v1/usage/query")
-	if create.Scope != platformauthz.ScopePlatform || record.Scope != platformauthz.ScopePlatform || query.Scope != platformauthz.ScopePrincipal {
-		t.Fatalf("unexpected scopes: create=%v record=%v query=%v", create.Scope, record.Scope, query.Scope)
+	if create.Scope != platformauthz.ScopePlatform || list.Scope != platformauthz.ScopePlatform || record.Scope != platformauthz.ScopePlatform || query.Scope != platformauthz.ScopePrincipal {
+		t.Fatalf("unexpected scopes: create=%v list=%v record=%v query=%v", create.Scope, list.Scope, record.Scope, query.Scope)
 	}
 }
 

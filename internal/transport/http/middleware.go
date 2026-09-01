@@ -250,8 +250,8 @@ func meteringHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 	requirements := map[string]platformauthz.Requirement{
 		"/api/v1/meters/create": {Resource: "metering.meter", Action: "create", Scope: platformauthz.ScopePlatform},
 		"/api/v1/meters/update": {Resource: "metering.meter", Action: "update", Scope: platformauthz.ScopePlatform},
-		"/api/v1/meters/get":    {Resource: "metering.meter", Action: "read", Scope: platformauthz.ScopePrincipal},
-		"/api/v1/meters/list":   {Resource: "metering.meter", Action: "list", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/meters/get":    {Resource: "metering.meter", Action: "read", Scope: platformauthz.ScopePlatform},
+		"/api/v1/meters/list":   {Resource: "metering.meter", Action: "list", Scope: platformauthz.ScopePlatform},
 		"/api/v1/usage/record":  {Resource: "metering.usage", Action: "record", Scope: platformauthz.ScopePlatform},
 		"/api/v1/usage/query":   {Resource: "metering.usage", Action: "query", Scope: platformauthz.ScopePrincipal},
 		"/api/v1/usage/adjust":  {Resource: "metering.usage", Action: "adjust", Scope: platformauthz.ScopePrincipal},

@@ -74,8 +74,8 @@ func meteringGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
 		requirements := map[string]platformauthz.Requirement{
 			meteringv1.MeteringService_CreateMeter_FullMethodName: {Resource: "metering.meter", Action: "create", Scope: platformauthz.ScopePlatform},
 			meteringv1.MeteringService_UpdateMeter_FullMethodName: {Resource: "metering.meter", Action: "update", Scope: platformauthz.ScopePlatform},
-			meteringv1.MeteringService_GetMeter_FullMethodName:    {Resource: "metering.meter", Action: "read", Scope: platformauthz.ScopePrincipal},
-			meteringv1.MeteringService_ListMeters_FullMethodName:  {Resource: "metering.meter", Action: "list", Scope: platformauthz.ScopePrincipal},
+			meteringv1.MeteringService_GetMeter_FullMethodName:    {Resource: "metering.meter", Action: "read", Scope: platformauthz.ScopePlatform},
+			meteringv1.MeteringService_ListMeters_FullMethodName:  {Resource: "metering.meter", Action: "list", Scope: platformauthz.ScopePlatform},
 			meteringv1.MeteringService_RecordUsage_FullMethodName: {Resource: "metering.usage", Action: "record", Scope: platformauthz.ScopePlatform},
 			meteringv1.MeteringService_QueryUsage_FullMethodName:  {Resource: "metering.usage", Action: "query", Scope: platformauthz.ScopePrincipal},
 			meteringv1.MeteringService_AdjustUsage_FullMethodName: {Resource: "metering.usage", Action: "adjust", Scope: platformauthz.ScopePrincipal},
