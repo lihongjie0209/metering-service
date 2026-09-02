@@ -85,6 +85,30 @@ type MeterView struct {
 	CreatedBy     string    `json:"created_by"`
 	UpdatedBy     string    `json:"updated_by"`
 }
+type MeterPageResponseBody struct {
+	Items    []MeterView `json:"items"`
+	Total    int64       `json:"total"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
+}
+type RecordUsageResultBody struct {
+	EventID   string `json:"event_id"`
+	FactID    string `json:"fact_id"`
+	Duplicate bool   `json:"duplicate"`
+}
+type UsagePointBody struct {
+	WindowStart time.Time         `json:"window_start"`
+	WindowEnd   time.Time         `json:"window_end"`
+	Quantity    int64             `json:"quantity"`
+	Dimensions  map[string]string `json:"dimensions"`
+}
+type UsagePageResponseBody struct {
+	Items         []UsagePointBody `json:"items"`
+	Total         int64            `json:"total"`
+	Page          int              `json:"page"`
+	PageSize      int              `json:"page_size"`
+	TotalQuantity int64            `json:"total_quantity"`
+}
 
 // CreateMeter godoc
 // @Summary Create a usage meter
@@ -159,7 +183,7 @@ func (h *Handler) GetMeter(c *gin.Context) {
 // @Produce json
 // @Security Bearer
 // @Param request body ListMetersRequest true "Search and pagination"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=MeterPageResponseBody}
 // @Router /api/v1/meters/list [post]
 func (h *Handler) ListMeters(c *gin.Context) {
 	var request ListMetersRequest
@@ -175,7 +199,7 @@ func (h *Handler) ListMeters(c *gin.Context) {
 	for i, value := range page.Items {
 		items[i] = meterView(value)
 	}
-	OK(c, metering.Page[MeterView]{Items: items, Total: page.Total, Page: page.Page, PageSize: page.PageSize})
+	OK(c, MeterPageResponseBody{Items: items, Total: page.Total, Page: page.Page, PageSize: page.PageSize})
 }
 
 // RecordUsage godoc
@@ -185,7 +209,7 @@ func (h *Handler) ListMeters(c *gin.Context) {
 // @Produce json
 // @Security Bearer
 // @Param request body RecordUsageRequest true "Usage batch"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=[]RecordUsageResultBody}
 // @Router /api/v1/usage/record [post]
 func (h *Handler) RecordUsage(c *gin.Context) {
 	var request RecordUsageRequest
@@ -197,7 +221,7 @@ func (h *Handler) RecordUsage(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, results)
+	OK(c, recordUsageResults(results))
 }
 
 // AdjustUsage godoc
@@ -207,7 +231,7 @@ func (h *Handler) RecordUsage(c *gin.Context) {
 // @Produce json
 // @Security Bearer
 // @Param request body AdjustUsageRequest true "Usage adjustment"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=RecordUsageResultBody}
 // @Router /api/v1/usage/adjust [post]
 func (h *Handler) AdjustUsage(c *gin.Context) {
 	var request AdjustUsageRequest
@@ -220,7 +244,7 @@ func (h *Handler) AdjustUsage(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, results[0])
+	OK(c, recordUsageResult(results[0]))
 }
 
 // QueryUsage godoc
@@ -230,7 +254,7 @@ func (h *Handler) AdjustUsage(c *gin.Context) {
 // @Produce json
 // @Security Bearer
 // @Param request body QueryUsageRequest true "Usage query"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=UsagePageResponseBody}
 // @Router /api/v1/usage/query [post]
 func (h *Handler) QueryUsage(c *gin.Context) {
 	var request QueryUsageRequest
@@ -242,7 +266,7 @@ func (h *Handler) QueryUsage(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"items": page.Items, "total": page.Total, "page": page.Page, "page_size": page.PageSize, "total_quantity": total})
+	OK(c, usagePageResponse(page, total))
 }
 func (h *Handler) bind(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
@@ -255,6 +279,23 @@ func meterView(value metering.Meter) MeterView {
 	keys := []string{}
 	_ = json.Unmarshal([]byte(value.DimensionKeysJSON), &keys)
 	return MeterView{ID: value.ID, Code: value.Code, Name: value.Name, Description: value.Description, Unit: value.Unit, Aggregation: value.Aggregation, DimensionKeys: keys, Status: value.Status, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
+}
+func recordUsageResult(value metering.RecordResult) RecordUsageResultBody {
+	return RecordUsageResultBody{EventID: value.EventID, FactID: value.FactID, Duplicate: value.Duplicate}
+}
+func recordUsageResults(values []metering.RecordResult) []RecordUsageResultBody {
+	result := make([]RecordUsageResultBody, len(values))
+	for i, value := range values {
+		result[i] = recordUsageResult(value)
+	}
+	return result
+}
+func usagePageResponse(page metering.Page[metering.UsagePoint], totalQuantity int64) UsagePageResponseBody {
+	items := make([]UsagePointBody, len(page.Items))
+	for i, value := range page.Items {
+		items[i] = UsagePointBody{WindowStart: value.WindowStart, WindowEnd: value.WindowEnd, Quantity: value.Quantity, Dimensions: value.Dimensions}
+	}
+	return UsagePageResponseBody{Items: items, Total: page.Total, Page: page.Page, PageSize: page.PageSize, TotalQuantity: totalQuantity}
 }
 func usageInputs(values []UsageInputRequest, adjustment bool, reason string) []metering.UsageInput {
 	result := make([]metering.UsageInput, len(values))

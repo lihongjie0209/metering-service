@@ -103,6 +103,19 @@ definitions:
       subject:
         type: string
     type: object
+  httptransport.MeterPageResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.MeterView'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
   httptransport.MeterView:
     properties:
       aggregation:
@@ -175,6 +188,15 @@ definitions:
     required:
     - events
     type: object
+  httptransport.RecordUsageResultBody:
+    properties:
+      duplicate:
+        type: boolean
+      event_id:
+        type: string
+      fact_id:
+        type: string
+    type: object
   httptransport.Response:
     properties:
       body: {}
@@ -231,6 +253,34 @@ definitions:
     - meter_code
     - source_service
     - tenant_id
+    type: object
+  httptransport.UsagePageResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.UsagePointBody'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+      total_quantity:
+        type: integer
+    type: object
+  httptransport.UsagePointBody:
+    properties:
+      dimensions:
+        additionalProperties:
+          type: string
+        type: object
+      quantity:
+        type: integer
+      window_end:
+        type: string
+      window_start:
+        type: string
     type: object
 info:
   contact: {}
@@ -336,7 +386,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MeterPageResponseBody'
+              type: object
       security:
       - Bearer: []
       summary: List meters
@@ -387,7 +442,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.RecordUsageResultBody'
+              type: object
       security:
       - Bearer: []
       summary: Record an auditable usage adjustment
@@ -410,7 +470,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.UsagePageResponseBody'
+              type: object
       security:
       - Bearer: []
       summary: Query aggregated tenant usage
@@ -433,7 +498,14 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  items:
+                    $ref: '#/definitions/httptransport.RecordUsageResultBody'
+                  type: array
+              type: object
       security:
       - Bearer: []
       summary: Idempotently record usage facts
