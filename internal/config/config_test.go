@@ -59,6 +59,20 @@ func TestConfig_OutboundCredentialsRequireProtectedTransport(t *testing.T) {
 	}
 }
 
+func TestLoad_ApplicationPSKDevelopmentOverride(t *testing.T) {
+	t.Setenv("APP_OUTBOUND_GRPC_APPLICATION_AUTH_TYPE", "psk")
+	t.Setenv("APP_OUTBOUND_GRPC_APPLICATION_AUTH_TOKEN", strings.Repeat("x", 32))
+	t.Setenv("APP_OUTBOUND_GRPC_APPLICATION_TLS_ALLOW_INSECURE", "true")
+	cfg, err := LoadWithProfile("../../config/config.yaml", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := cfg.Outbound.GRPC["application"]
+	if upstream.Auth.Type != "psk" || upstream.Auth.Token != strings.Repeat("x", 32) || !upstream.TLS.AllowInsecure {
+		t.Fatalf("application upstream = %+v, want environment PSK with development plaintext opt-in", upstream)
+	}
+}
+
 func TestConfig_ProductionRequiresAuthorization(t *testing.T) {
 	cfg, err := Load("../../config/config.yaml")
 	if err != nil {
