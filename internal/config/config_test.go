@@ -20,6 +20,26 @@ func TestConfig_AuthorizationRequiresConfiguredUpstream(t *testing.T) {
 	}
 }
 
+func TestLoad_IdempotencyRouteEnvironmentOverrides(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("idempotency:\n  http_paths: [/api/v1/old]\n  grpc_methods: [/old.Service/Create]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APP_IDEMPOTENCY_HTTP_PATHS", "[/api/v1/usage/record, /api/v1/usage/adjust]")
+	t.Setenv("APP_IDEMPOTENCY_GRPC_METHODS", "[/platform.metering.v1.MeteringService/RecordUsage]")
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := strings.Join(cfg.Idempotency.HTTPPaths, ","); got != "/api/v1/usage/record,/api/v1/usage/adjust" {
+		t.Fatalf("HTTPPaths = %q", got)
+	}
+	if got := strings.Join(cfg.Idempotency.GRPCMethods, ","); got != "/platform.metering.v1.MeteringService/RecordUsage" {
+		t.Fatalf("GRPCMethods = %q", got)
+	}
+}
+
 func TestConfig_ApplicationScopeRequiresConfiguredUpstream(t *testing.T) {
 	t.Parallel()
 	cfg, err := Load("../../config/config.yaml")

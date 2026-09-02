@@ -110,6 +110,16 @@ migration:
 
 idempotency:
   enabled: false
+  http_paths:
+    - /api/v1/meters/create
+    - /api/v1/meters/update
+    - /api/v1/usage/record
+    - /api/v1/usage/adjust
+  grpc_methods:
+    - /platform.metering.v1.MeteringService/CreateMeter
+    - /platform.metering.v1.MeteringService/UpdateMeter
+    - /platform.metering.v1.MeteringService/RecordUsage
+    - /platform.metering.v1.MeteringService/AdjustUsage
   processing_ttl: 30s
   result_ttl: 24h
   failure_ttl: 5m
