@@ -35,6 +35,30 @@ func TestConfig_ApplicationScopeRequiresConfiguredUpstream(t *testing.T) {
 	}
 }
 
+func TestConfig_OutboundCredentialsRequireProtectedTransport(t *testing.T) {
+	t.Parallel()
+	cfg, err := Load("../../config/config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := cfg.Outbound.GRPC["application"]
+	upstream.Auth = ClientAuth{Type: "psk", Token: strings.Repeat("x", 32)}
+	cfg.Outbound.GRPC["application"] = upstream
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "explicit allow_insecure") {
+		t.Fatalf("Validate() error = %v, want protected transport error", err)
+	}
+
+	upstream.TLS.AllowInsecure = true
+	cfg.Outbound.GRPC["application"] = upstream
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() development allow_insecure error = %v", err)
+	}
+
+	if err := validateClientPolicy("application", upstream.Auth, upstream.Retry, upstream.Breaker, upstream.TLS, true); err == nil || !strings.Contains(err.Error(), "production outbound application credentials require TLS") {
+		t.Fatalf("validateClientPolicy() error = %v, want production TLS error", err)
+	}
+}
+
 func TestConfig_ProductionRequiresAuthorization(t *testing.T) {
 	cfg, err := Load("../../config/config.yaml")
 	if err != nil {
